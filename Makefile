@@ -3,7 +3,7 @@
 ############
 
 ifndef CPPC
-	CPPC=g++
+	CPPC=nvcc
 endif
 
 
@@ -36,8 +36,8 @@ EXEC_SERIAL = sciara_serial
 default:all
 
 all:
-	$(CPPC) *.cpp -o $(EXEC_SERIAL) -O0
-	$(CPPC) *.cpp -o $(EXEC_OMP) -fopenmp -O3
+	$(CPPC) *.cu -o $(EXEC_SERIAL) -O0
+#	$(CPPC) *.cu -o $(EXEC_OMP) -fopenmp -O3
 
 
 #############
