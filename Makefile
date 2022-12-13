@@ -37,7 +37,7 @@ default:all
 
 all:
 	$(CPPC) -g *.cu -o $(EXEC_SERIAL) -O0
-#	$(CPPC) *.cu -o $(EXEC_OMP) -fopenmp -O3
+#	$(CPPC) *.cpp -o $(EXEC_OMP) -fopenmp -O3
 
 
 #############
