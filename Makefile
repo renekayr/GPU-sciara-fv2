@@ -36,7 +36,7 @@ EXEC_SERIAL = sciara_serial
 default:all
 
 all:
-	$(CPPC) -g *.cu -o $(EXEC_SERIAL) -O0
+	$(CPPC) -arch=native -g *.cu -o $(EXEC_SERIAL) -O0
 #	$(CPPC) *.cpp -o $(EXEC_OMP) -fopenmp -O3
 
 

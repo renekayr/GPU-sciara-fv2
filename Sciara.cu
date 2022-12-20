@@ -76,41 +76,36 @@ void simulationInitialize(Sciara* sciara)
 
 int _Xi[] = {0, -1,  0,  0,  1, -1,  1,  1, -1}; // Xj: Moore neighborhood row coordinates (see below)
 int _Xj[] = {0,  0, -1,  1,  0, -1, -1,  1,  1}; // Xj: Moore neighborhood col coordinates (see below)
-void init(Sciara** sciara)
+void init(Sciara*& sciara)
 {
-  //sciara = new Sciara;
-  printf("Test");
-  cudaError_t error = cudaMallocManaged((void**)sciara, sizeof(Sciara));
-  checkReturnedError(error, __LINE__);
+  (sciara)->domain = new Domain;
 
-  (*sciara)->domain = new Domain;
-
-  (*sciara)->X = new NeighsRelativeCoords;
-  (*sciara)->X->Xi = new int[MOORE_NEIGHBORS];
-  (*sciara)->X->Xj = new int[MOORE_NEIGHBORS];
+  (sciara)->X = new NeighsRelativeCoords;
+  (sciara)->X->Xi = new int[MOORE_NEIGHBORS];
+  (sciara)->X->Xj = new int[MOORE_NEIGHBORS];
   for (int n=0; n<MOORE_NEIGHBORS; n++)
   {
-    (*sciara)->X->Xi[n] = _Xi[n];
-    (*sciara)->X->Xj[n] = _Xj[n];
+    (sciara)->X->Xi[n] = _Xi[n];
+    (sciara)->X->Xj[n] = _Xj[n];
   }
 
-  (*sciara)->substates = new Substates;
+  (sciara)->substates = new Substates;
   //allocateSubstates(sciara); //Substates allocation is done when the confiugration is loaded
-  (*sciara)->parameters = new Parameters;
-  (*sciara)->simulation = new Simulation;
+  (sciara)->parameters = new Parameters;
+  (sciara)->simulation = new Simulation;
 }
 
-void finalize(Sciara** sciara)
+void finalize(Sciara*& sciara)
 {
-  deallocateSubstates((*sciara));
-  delete (*sciara)->domain;
-  delete (*sciara)->X->Xi;
-  delete (*sciara)->X->Xj;
-  delete (*sciara)->X;
-  delete (*sciara)->substates;
-  delete (*sciara)->parameters;
-  delete (*sciara)->simulation;
-  delete *sciara;
+  deallocateSubstates((sciara));
+  delete (sciara)->domain;
+  delete (sciara)->X->Xi;
+  delete (sciara)->X->Xj;
+  delete (sciara)->X;
+  delete (sciara)->substates;
+  delete (sciara)->parameters;
+  delete (sciara)->simulation;
+  cudaFree(sciara);
   sciara = NULL;
 }
 
