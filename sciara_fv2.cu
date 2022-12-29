@@ -178,22 +178,49 @@ void massBalance(
   double h_next = initial_h;
   double t_next = initial_h * initial_t;
 
+  // printf("i = %d, j = %d\n", i, j);
   for (int n = 1; n < MOORE_NEIGHBORS; n++)
   {
+    if (i == 377 && j == 241) {
+    printf("beginning\n");
+    }
     neigh_t = GET(ST, c, i + Xi[n], j + Xj[n]);
+    if(i == 377 && j == 241) {
+      printf("neigh!\n");
+      printf("n = %d, ", n);
+      printf("r = %d, ", r);
+      printf("c = %d, ", c);
+      printf("inflowsIndices = %d, ", inflowsIndices[n-1]);
+      printf("Xi = %d, ", Xi[n]);
+      printf("Xj = %d\n", Xj[n]);
+    }
+
     inFlow = BUF_GET(Mf, r, c, inflowsIndices[n - 1], i + Xi[n], j + Xj[n]);
+    if(i == 377 && j == 241)
+      printf("assigned inflow\n");
 
     outFlow = BUF_GET(Mf, r, c, n - 1, i, j);
+    if(i == 377 && j == 241)
+      printf("assigned outflow\n");
 
     h_next += inFlow - outFlow;
+    if(i == 377 && j == 241)
+      printf("ass'd h_next\n");
     t_next += (inFlow * neigh_t - outFlow * initial_t);
+    if(i == 377 && j == 241)
+      printf("ass'd t_next\n");
   }
+  
+  if(i == 377 && j == 241)
+  printf("outside the loop\n");
 
   if (h_next > 0)
   {
+    printf("h_next > 0\n");
     t_next /= h_next;
     SET(ST_next, c, i, j, t_next);
     SET(Sh_next, c, i, j, h_next);
+    printf("h_next > 0 end\n");
   }
 }
 
@@ -405,7 +432,6 @@ __global__ void massBalanceKernel(
 
   const int inflowsIndices[NUMBER_OF_OUTFLOWS] = {3, 2, 1, 0, 6, 7, 4, 5};
   double inFlow, outFlow, neigh_t, initial_h, initial_t, h_next, t_next;
-
   for (long row = row_index; row < r; row += row_stride)
   {
     for (long col = col_index; col < c; col += col_stride)
@@ -520,21 +546,31 @@ double reduceAdd(int r, int c, double *buffer)
   return sum;
 }
 
+//-----------------------------------------------------------------------------
+// Checking the contents of Mf (delete later)
+//----------------------------------------------------------------------------
+void checkMf(double* buffer, int i_start, int i_end, int j_start, int j_end, int rows, int cols)
+{
+ for (int i = i_start; i < i_end; i++) {
+   for (int j = j_start; j < j_end; j++){
+     printf("%d ", BUF_GET(buffer, rows, cols, 0, i, j ));
+   }
+ }
+}
+
 // ----------------------------------------------------------------------------
 // Function main()
 // ----------------------------------------------------------------------------
 int main(int argc, char **argv)
 {
-  printf("Test\n");
   Sciara *sciara;
-  // sciara = new Sciara;
 
-  cudaError_t error = cudaMallocManaged((void **)&sciara, sizeof(Sciara));
-  checkReturnedError(error, __LINE__);
   init(sciara);
 
   long grid_size = 420;
   long block_size = 42;
+
+
 
   // Input data
   int max_steps = atoi(argv[MAX_STEPS_ID]);
