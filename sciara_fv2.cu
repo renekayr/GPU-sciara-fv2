@@ -276,7 +276,7 @@ __global__ void emitLavaKernel(
     int c,
     // vector<TVent> &vent,
     TVent *vent,
-    long n_vent, // vent.size()
+    int n_vent, // vent.size()
     double elapsed_time,
     double Pclock,
     double emission_time,
@@ -353,7 +353,7 @@ __global__ void computeOutflowsKernel(
       rr = pow(10, _a + _b * T);
       hc = pow(10, _c + _d * T);
 
-      for (int k = 0; k < MOORE_NEIGHBORS; k++)
+      for (int k = 0; k < MOORE_NEIGHBORS; ++k)
       {
         sz0 = GET(Sz, c, row, col);
         sz = GET(Sz, c, row + Xi[k], col + Xj[k]);
@@ -370,7 +370,7 @@ __global__ void computeOutflowsKernel(
       H[0] = z[0];
       theta[0] = 0;
       eliminated[0] = false;
-      for (int k = 1; k < MOORE_NEIGHBORS; k++)
+      for (int k = 1; k < MOORE_NEIGHBORS; ++k)
       {
         if (z[0] + h[0] > z[k] + h[k])
         {
@@ -391,15 +391,15 @@ __global__ void computeOutflowsKernel(
         loop = false;
         avg = h[0];
         counter = 0;
-        for (int k = 0; k < MOORE_NEIGHBORS; k++)
+        for (int k = 0; k < MOORE_NEIGHBORS; ++k)
           if (!eliminated[k])
           {
             avg += H[k];
-            counter++;
+            ++counter;
           }
         if (counter != 0)
           avg = avg / double(counter);
-        for (int k = 0; k < MOORE_NEIGHBORS; k++)
+        for (int k = 0; k < MOORE_NEIGHBORS; ++k)
           if (!eliminated[k] && avg <= H[k])
           {
             eliminated[k] = true;
@@ -407,7 +407,7 @@ __global__ void computeOutflowsKernel(
           }
       } while (loop);
 
-      for (int k = 1; k < MOORE_NEIGHBORS; k++)
+      for (int k = 1; k < MOORE_NEIGHBORS; ++k)
       {
         if (!eliminated[k] && h[0] > hc * cos(theta[k]))
           BUF_SET(Mf, r, c, k - 1, row, col, Pr[k] * (avg - H[k]));
@@ -445,12 +445,12 @@ __global__ void massBalanceKernel(
       h_next = initial_h;
       t_next = initial_h * initial_t;
 
-      for (int n = 1; n < MOORE_NEIGHBORS; n++)
+      for (int n = 1; n < MOORE_NEIGHBORS; ++n)
       {
-        neigh_t = GET(ST, c, col + Xi[n], row + Xj[n]);
-        inFlow = BUF_GET(Mf, r, c, inflowsIndices[n - 1], col + Xi[n], row + Xj[n]);
+        neigh_t = GET(ST, c, row + Xi[n], col + Xj[n]);
+        inFlow = BUF_GET(Mf, r, c, inflowsIndices[n - 1], row + Xi[n], col + Xj[n]);
 
-        outFlow = BUF_GET(Mf, r, c, n - 1, col, row);
+        outFlow = BUF_GET(Mf, r, c, n - 1, row, col);
 
         h_next += inFlow - outFlow;
         t_next += (inFlow * neigh_t - outFlow * initial_t);
@@ -459,8 +459,8 @@ __global__ void massBalanceKernel(
       if (h_next > 0)
       {
         t_next /= h_next;
-        SET(ST_next, c, col, row, t_next);
-        SET(Sh_next, c, col, row, h_next);
+        SET(ST_next, c, row, col, t_next);
+        SET(Sh_next, c, row, col, h_next);
       }
     }
   }
@@ -543,8 +543,8 @@ void boundaryConditions(
 double reduceAdd(int r, int c, double *buffer)
 {
   double sum = 0.0;
-  for (int i = 0; i < r; i++)
-    for (int j = 0; j < c; j++)
+  for (int i = 0; i < r; ++i)
+    for (int j = 0; j < c; ++j)
       sum += GET(buffer, c, i, j);
 
   return sum;
@@ -555,9 +555,9 @@ double reduceAdd(int r, int c, double *buffer)
 //----------------------------------------------------------------------------
 void checkMf(double *buffer, int i_start, int i_end, int j_start, int j_end, int rows, int cols)
 {
-  for (int i = i_start; i < i_end; i++)
+  for (int i = i_start; i < i_end; ++i)
   {
-    for (int j = j_start; j < j_end; j++)
+    for (int j = j_start; j < j_end; ++j)
     {
       printf("%d ", BUF_GET(buffer, rows, cols, 0, i, j));
     }
@@ -594,7 +594,7 @@ int main(int argc, char **argv)
   double thickness_threshold = atof(argv[THICKNESS_THRESHOLD_ID]);
 
   sciara->simulation->elapsed_time += sciara->parameters->Pclock;
-  sciara->simulation->step++;
+  ++(sciara->simulation->step);
 
   // Apply the emitLava kernel to the whole domain and update the Sh and ST state variables
 
