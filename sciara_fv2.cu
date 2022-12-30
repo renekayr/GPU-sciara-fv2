@@ -181,38 +181,40 @@ void massBalance(
   // printf("i = %d, j = %d\n", i, j);
   for (int n = 1; n < MOORE_NEIGHBORS; n++)
   {
-    if (i == 377 && j == 241) {
-    printf("beginning\n");
+    if (i == 377 && j == 241)
+    {
+      printf("beginning\n");
     }
     neigh_t = GET(ST, c, i + Xi[n], j + Xj[n]);
-    if(i == 377 && j == 241) {
+    if (i == 377 && j == 241)
+    {
       printf("neigh!\n");
       printf("n = %d, ", n);
       printf("r = %d, ", r);
       printf("c = %d, ", c);
-      printf("inflowsIndices = %d, ", inflowsIndices[n-1]);
+      printf("inflowsIndices = %d, ", inflowsIndices[n - 1]);
       printf("Xi = %d, ", Xi[n]);
       printf("Xj = %d\n", Xj[n]);
     }
 
     inFlow = BUF_GET(Mf, r, c, inflowsIndices[n - 1], i + Xi[n], j + Xj[n]);
-    if(i == 377 && j == 241)
+    if (i == 377 && j == 241)
       printf("assigned inflow\n");
 
     outFlow = BUF_GET(Mf, r, c, n - 1, i, j);
-    if(i == 377 && j == 241)
+    if (i == 377 && j == 241)
       printf("assigned outflow\n");
 
     h_next += inFlow - outFlow;
-    if(i == 377 && j == 241)
+    if (i == 377 && j == 241)
       printf("ass'd h_next\n");
     t_next += (inFlow * neigh_t - outFlow * initial_t);
-    if(i == 377 && j == 241)
+    if (i == 377 && j == 241)
       printf("ass'd t_next\n");
   }
-  
-  if(i == 377 && j == 241)
-  printf("outside the loop\n");
+
+  if (i == 377 && j == 241)
+    printf("outside the loop\n");
 
   if (h_next > 0)
   {
@@ -269,42 +271,44 @@ void computeNewTemperatureAndSolidification(
   }
 }
 
-// __global__ void emitLavaKernel(
-//     int r,
-//     int c,
-//     vector<TVent> &vent,
-//     double elapsed_time,
-//     double Pclock,
-//     double emission_time,
-//     double &total_emitted_lava,
-//     double Pac,
-//     double PTvent,
-//     double *Sh,
-//     double *Sh_next,
-//     double *ST_next)
-// {
-//   long row_index = threadIdx.y + blockDim.y * blockIdx.y;
-//   long col_index = threadIdx.x + blockDim.x * blockIdx.x;
-//   long row_stride = blockDim.y * gridDim.y;
-//   long col_stride = blockDim.x * gridDim.x;
+__global__ void emitLavaKernel(
+    int r,
+    int c,
+    // vector<TVent> &vent,
+    TVent *vent,
+    long n_vent, // vent.size()
+    double elapsed_time,
+    double Pclock,
+    double emission_time,
+    double &total_emitted_lava,
+    double Pac,
+    double PTvent,
+    double *Sh,
+    double *Sh_next,
+    double *ST_next)
+{
+  long row_index = threadIdx.y + blockDim.y * blockIdx.y;
+  long col_index = threadIdx.x + blockDim.x * blockIdx.x;
+  long row_stride = blockDim.y * gridDim.y;
+  long col_stride = blockDim.x * gridDim.x;
 
-//   for (long row = row_index; row < r; row += row_stride)
-//   {
-//     for (long col = col_index; col < c; col += col_stride)
-//     {
-//       for (int k = 0; k < vent.size(); ++k)
-//       {
-//         if (row == vent[k].y() && col == vent[k].x())
-//         {
-//           SET(Sh_next, c, row, col, GET(Sh, c, row, col) + vent[k].thickness(elapsed_time, Pclock, emission_time, Pac));
-//           SET(ST_next, c, row, col, PTvent);
+  for (long row = row_index; row < r; row += row_stride)
+  {
+    for (long col = col_index; col < c; col += col_stride)
+    {
+      for (int k = 0; k < n_vent; ++k)
+      {
+        if (row == vent[k].y() && col == vent[k].x())
+        {
+          SET(Sh_next, c, row, col, GET(Sh, c, row, col) + vent[k].thickness(elapsed_time, Pclock, emission_time, Pac));
+          SET(ST_next, c, row, col, PTvent);
 
-//           total_emitted_lava += vent[k].thickness(elapsed_time, Pclock, emission_time, Pac);
-//         }
-//       }
-//     }
-//   }
-// }
+          total_emitted_lava += vent[k].thickness(elapsed_time, Pclock, emission_time, Pac);
+        }
+      }
+    }
+  }
+}
 
 __global__ void computeOutflowsKernel(
     int r,
@@ -549,13 +553,15 @@ double reduceAdd(int r, int c, double *buffer)
 //-----------------------------------------------------------------------------
 // Checking the contents of Mf (delete later)
 //----------------------------------------------------------------------------
-void checkMf(double* buffer, int i_start, int i_end, int j_start, int j_end, int rows, int cols)
+void checkMf(double *buffer, int i_start, int i_end, int j_start, int j_end, int rows, int cols)
 {
- for (int i = i_start; i < i_end; i++) {
-   for (int j = j_start; j < j_end; j++){
-     printf("%d ", BUF_GET(buffer, rows, cols, 0, i, j ));
-   }
- }
+  for (int i = i_start; i < i_end; i++)
+  {
+    for (int j = j_start; j < j_end; j++)
+    {
+      printf("%d ", BUF_GET(buffer, rows, cols, 0, i, j));
+    }
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -569,8 +575,6 @@ int main(int argc, char **argv)
 
   long grid_size = 420;
   long block_size = 42;
-
-
 
   // Input data
   int max_steps = atoi(argv[MAX_STEPS_ID]);
@@ -594,78 +598,85 @@ int main(int argc, char **argv)
 
   // Apply the emitLava kernel to the whole domain and update the Sh and ST state variables
 
-#pragma omp parallel for
-      for (int i = i_start; i < i_end; i++) for (int j = j_start; j < j_end; j++)
-          emitLava(i, j,
-                   sciara->domain->rows,
-                   sciara->domain->cols,
-                   sciara->simulation->vent,
-                   sciara->simulation->elapsed_time,
-                   sciara->parameters->Pclock,
-                   sciara->simulation->emission_time,
-                   sciara->simulation->total_emitted_lava,
-                   sciara->parameters->Pac,
-                   sciara->parameters->PTvent,
-                   sciara->substates->Sh,
-                   sciara->substates->Sh_next,
-                   sciara->substates->ST_next);
+  // #pragma omp parallel for
+  //       for (int i = i_start; i < i_end; i++) for (int j = j_start; j < j_end; j++)
+  //           emitLava(i, j,
+  //                    sciara->domain->rows,
+  //                    sciara->domain->cols,
+  //                    sciara->simulation->vent,
+  //                    sciara->simulation->elapsed_time,
+  //                    sciara->parameters->Pclock,
+  //                    sciara->simulation->emission_time,
+  //                    sciara->simulation->total_emitted_lava,
+  //                    sciara->parameters->Pac,
+  //                    sciara->parameters->PTvent,
+  //                    sciara->substates->Sh,
+  //                    sciara->substates->Sh_next,
+  //                    sciara->substates->ST_next);
+  //   memcpy(sciara->substates->Sh, sciara->substates->Sh_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
+  //   memcpy(sciara->substates->ST, sciara->substates->ST_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
+
+  emitLavaKernel<<<grid_size, block_size>>>(
+      sciara->domain->rows,
+      sciara->domain->cols,
+      &(*sciara->simulation->vent)[0], // assume the STL-vector specification to guarantee contiguous storage of elements (http://www.open-std.org/jtc1/sc22/wg21/docs/lwg-defects.html#69)
+      (*sciara->simulation->vent).size(),
+      sciara->simulation->elapsed_time,
+      sciara->parameters->Pclock,
+      sciara->simulation->emission_time,
+      sciara->simulation->total_emitted_lava,
+      sciara->parameters->Pac,
+      sciara->parameters->PTvent,
+      sciara->substates->Sh,
+      sciara->substates->Sh_next,
+      sciara->substates->ST_next);
+  checkError(__LINE__);
+
+  cudaDeviceSynchronize();
+
   memcpy(sciara->substates->Sh, sciara->substates->Sh_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
   memcpy(sciara->substates->ST, sciara->substates->ST_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
 
-  // emitLavaKernel<<<grid_size, block_size>>>(
-  //     sciara->domain->rows,
-  //     sciara->domain->cols,
-  //     sciara->simulation->vent,
-  //     sciara->simulation->elapsed_time,
-  //     sciara->parameters->Pclock,
-  //     sciara->simulation->emission_time,
-  //     sciara->simulation->total_emitted_lava,
-  //     sciara->parameters->Pac,
-  //     sciara->parameters->PTvent,
-  //     sciara->substates->Sh,
-  //     sciara->substates->Sh_next,
-  //     sciara->substates->ST_next);
-  // checkError(__LINE__);
+  //  Apply the computeOutflows kernel to the whole domain
 
-  // Apply the computeOutflows kernel to the whole domain
+  // #pragma omp parallel for
+  //   for (int i = i_start; i < i_end; i++)
+  //     for (int j = j_start; j < j_end; j++)
+  //       computeOutflows(
+  //           i,
+  //           j,
+  //           sciara->domain->rows,
+  //           sciara->domain->cols,
+  //           sciara->X->Xi,
+  //           sciara->X->Xj,
+  //           sciara->substates->Sz,
+  //           sciara->substates->Sh,
+  //           sciara->substates->ST,
+  //           sciara->substates->Mf,
+  //           sciara->parameters->Pc,
+  //           sciara->parameters->a,
+  //           sciara->parameters->b,
+  //           sciara->parameters->c,
+  //           sciara->parameters->d);
 
-#pragma omp parallel for
-  for (int i = i_start; i < i_end; i++)
-    for (int j = j_start; j < j_end; j++)
-      computeOutflows(
-          i,
-          j,
-          sciara->domain->rows,
-          sciara->domain->cols,
-          sciara->X->Xi,
-          sciara->X->Xj,
-          sciara->substates->Sz,
-          sciara->substates->Sh,
-          sciara->substates->ST,
-          sciara->substates->Mf,
-          sciara->parameters->Pc,
-          sciara->parameters->a,
-          sciara->parameters->b,
-          sciara->parameters->c,
-          sciara->parameters->d);
+  computeOutflowsKernel<<<grid_size, block_size>>>(
+      sciara->domain->rows,
+      sciara->domain->cols,
+      sciara->X->Xi,
+      sciara->X->Xj,
+      sciara->substates->Sz,
+      sciara->substates->Sh,
+      sciara->substates->ST,
+      sciara->substates->Mf,
+      sciara->parameters->Pc,
+      sciara->parameters->a,
+      sciara->parameters->b,
+      sciara->parameters->c,
+      sciara->parameters->d);
+  checkError(__LINE__);
 
-      // computeOutflowsKernel<<<grid_size, block_size>>>(
-      //     sciara->domain->rows,
-      //     sciara->domain->cols,
-      //     sciara->X->Xi,
-      //     sciara->X->Xj,
-      //     sciara->substates->Sz,
-      //     sciara->substates->Sh,
-      //     sciara->substates->ST,
-      //     sciara->substates->Mf,
-      //     sciara->parameters->Pc,
-      //     sciara->parameters->a,
-      //     sciara->parameters->b,
-      //     sciara->parameters->c,
-      //     sciara->parameters->d);
-      // checkError(__LINE__);
-
-      // Apply the massBalance mass balance kernel to the whole domain and update the Sh and ST state variables
+  cudaDeviceSynchronize();
+  // Apply the massBalance mass balance kernel to the whole domain and update the Sh and ST state variables
 
 #pragma omp parallel for
   for (int i = i_start; i < i_end; i++)
@@ -694,31 +705,31 @@ int main(int argc, char **argv)
   //                                              sciara->substates->Mf);
   // checkError(__LINE__);
 
-//   // Apply the computeNewTemperatureAndSolidification kernel to the whole domain
+  //   // Apply the computeNewTemperatureAndSolidification kernel to the whole domain
 
-// #pragma omp parallel for
-//   for (int i = i_start; i < i_end; i++)
-//     for (int j = j_start; j < j_end; j++)
-//       computeNewTemperatureAndSolidification(i, j,
-//                                              sciara->domain->rows,
-//                                              sciara->domain->cols,
-//                                              sciara->parameters->Pepsilon,
-//                                              sciara->parameters->Psigma,
-//                                              sciara->parameters->Pclock,
-//                                              sciara->parameters->Pcool,
-//                                              sciara->parameters->Prho,
-//                                              sciara->parameters->Pcv,
-//                                              sciara->parameters->Pac,
-//                                              sciara->parameters->PTsol,
-//                                              sciara->substates->Sz,
-//                                              sciara->substates->Sz_next,
-//                                              sciara->substates->Sh,
-//                                              sciara->substates->Sh_next,
-//                                              sciara->substates->ST,
-//                                              sciara->substates->ST_next,
-//                                              sciara->substates->Mf,
-//                                              sciara->substates->Mhs,
-//                                              sciara->substates->Mb);
+  // #pragma omp parallel for
+  //   for (int i = i_start; i < i_end; i++)
+  //     for (int j = j_start; j < j_end; j++)
+  //       computeNewTemperatureAndSolidification(i, j,
+  //                                              sciara->domain->rows,
+  //                                              sciara->domain->cols,
+  //                                              sciara->parameters->Pepsilon,
+  //                                              sciara->parameters->Psigma,
+  //                                              sciara->parameters->Pclock,
+  //                                              sciara->parameters->Pcool,
+  //                                              sciara->parameters->Prho,
+  //                                              sciara->parameters->Pcv,
+  //                                              sciara->parameters->Pac,
+  //                                              sciara->parameters->PTsol,
+  //                                              sciara->substates->Sz,
+  //                                              sciara->substates->Sz_next,
+  //                                              sciara->substates->Sh,
+  //                                              sciara->substates->Sh_next,
+  //                                              sciara->substates->ST,
+  //                                              sciara->substates->ST_next,
+  //                                              sciara->substates->Mf,
+  //                                              sciara->substates->Mhs,
+  //                                              sciara->substates->Mb);
   // memcpy(sciara->substates->Sz, sciara->substates->Sz_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
   // memcpy(sciara->substates->Sh, sciara->substates->Sh_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
   // memcpy(sciara->substates->ST, sciara->substates->ST_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
@@ -745,25 +756,25 @@ int main(int argc, char **argv)
   //     sciara->substates->Mb);
   // checkError(__LINE__);
 
-//   // Apply the boundaryConditions kernel to the whole domain and update the Sh and ST state variables
-// #pragma omp parallel for
-//   for (int i = i_start; i < i_end; i++)
-//     for (int j = j_start; j < j_end; j++)
-//       boundaryConditions(i, j,
-//                          sciara->domain->rows,
-//                          sciara->domain->cols,
-//                          sciara->substates->Mf,
-//                          sciara->substates->Mb,
-//                          sciara->substates->Sh,
-//                          sciara->substates->Sh_next,
-//                          sciara->substates->ST,
-//                          sciara->substates->ST_next);
-//   memcpy(sciara->substates->Sh, sciara->substates->Sh_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
-//   memcpy(sciara->substates->ST, sciara->substates->ST_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
+  //   // Apply the boundaryConditions kernel to the whole domain and update the Sh and ST state variables
+  // #pragma omp parallel for
+  //   for (int i = i_start; i < i_end; i++)
+  //     for (int j = j_start; j < j_end; j++)
+  //       boundaryConditions(i, j,
+  //                          sciara->domain->rows,
+  //                          sciara->domain->cols,
+  //                          sciara->substates->Mf,
+  //                          sciara->substates->Mb,
+  //                          sciara->substates->Sh,
+  //                          sciara->substates->Sh_next,
+  //                          sciara->substates->ST,
+  //                          sciara->substates->ST_next);
+  //   memcpy(sciara->substates->Sh, sciara->substates->Sh_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
+  //   memcpy(sciara->substates->ST, sciara->substates->ST_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
 
-//   // Global reduction
-//   if (sciara->simulation->step % reduceInterval == 0)
-//     total_current_lava = reduceAdd(sciara->domain->rows, sciara->domain->cols, sciara->substates->Sh);
+  //   // Global reduction
+  //   if (sciara->simulation->step % reduceInterval == 0)
+  //     total_current_lava = reduceAdd(sciara->domain->rows, sciara->domain->cols, sciara->substates->Sh);
 
   printf("Releasing memory...\n");
   finalize(sciara);

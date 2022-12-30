@@ -84,7 +84,7 @@ typedef struct
 
 	unsigned int emission_time;
 	vector<TEmissionRate> emission_rate;
-	vector<TVent> vent;
+	vector<TVent> *vent;
 	double effusion_duration;
   double total_emitted_lava;
 

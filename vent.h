@@ -38,25 +38,25 @@ private:
 //---------------------------------------------------------------------------
 class TVent {
 public:
-	int x() {
+	__host__ __device__ int x() {
 		return _x;
 	}
-	int y() {
+	__host__ __device__ int y() {
 		return _y;
 	}
-	int vent_id() {
+	__host__ __device__ int vent_id() {
 		return _vent_id;
 	}
-	void set_x(int x) {
+	__host__ __device__ void set_x(int x) {
 		_x = x;
 	}
-	void set_y(int y) {
+	__host__ __device__ void set_y(int y) {
 		_y = y;
 	}
-	void set_vent_id(int id) {
+	__host__ __device__ void set_vent_id(int id) {
 		_vent_id = id;
 	}
-	bool setEmissionRate(vector<TEmissionRate> er_vec, int id) {
+	__host__ __device__ bool setEmissionRate(vector<TEmissionRate> er_vec, int id) {
 		bool found = false;
 		for (unsigned int i = 0; i < er_vec.size(); i++)
 			if (er_vec[i].vent_id() == id) {
@@ -65,13 +65,13 @@ public:
 			}
 		return found;
 	}
-	double& operator[](int i) {
+	__host__ __device__ double& operator[](int i) {
 		return _emission_rate[i];
 	}
-	unsigned int size() {
+	__host__ __device__ unsigned int size() {
 		return _emission_rate.size();
 	}
-	double thickness(double sim_elapsed_time, double Pt, unsigned int emission_time, double Pac) {
+	__host__ __device__ double thickness(double sim_elapsed_time, double Pt, unsigned int emission_time, double Pac) {
 		unsigned int i;
 
 		i = (unsigned int) (sim_elapsed_time / emission_time);
@@ -80,7 +80,7 @@ public:
 		else
 			return _emission_rate[i] / Pac * Pt;
 	}
-	void print() {
+	__host__ __device__ void print() {
 		printf("vent_id = %d\nemission_rate\n", _vent_id);
 		for (unsigned int i = 0; i < _emission_rate.size(); i++)
 			printf("%f\n", _emission_rate[i]);

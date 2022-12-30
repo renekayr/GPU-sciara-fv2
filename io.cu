@@ -217,7 +217,7 @@ int loadVents(char* path, Sciara* sciara)
   fclose(input_file);
 
   //verifica della consistenza della matrice
-  initVents(sciara->substates->Mv, sciara->domain->cols, sciara->domain->rows, sciara->simulation->vent);
+  initVents(sciara->substates->Mv, sciara->domain->cols, sciara->domain->rows, *(sciara->simulation->vent));
 
   calDeleteBuffer2Di(sciara->substates->Mv);
 
@@ -230,11 +230,11 @@ int loadEmissionRate(char *path, Sciara* sciara)
   if ((input_file = fopen(path, "r")) == NULL)
     return FILE_ERROR;
 
-  int emission_rate_file_status = loadEmissionRates(input_file, sciara->simulation->emission_time, sciara->simulation->emission_rate, sciara->simulation->vent);
+  int emission_rate_file_status = loadEmissionRates(input_file, sciara->simulation->emission_time, sciara->simulation->emission_rate,(*sciara->simulation->vent));
   fclose(input_file);
 
   //verifica della consistenza del file e definisce il vettore vent
-  int error = defineVents(sciara->simulation->emission_rate, sciara->simulation->vent);
+  int error = defineVents(sciara->simulation->emission_rate, *(sciara->simulation->vent));
   if (error || emission_rate_file_status != EMISSION_RATE_FILE_OK)
     return FILE_ERROR;
 
@@ -361,7 +361,7 @@ int saveConfiguration(char const *path, Sciara* sciara)
   //apre il file Vents
   ConfigurationFileSavingPath((char*)path, sciara->simulation->step, "Vents", ".stt", s);
   sciara->substates->Mv = calAllocBuffer2Di(sciara->domain->rows,sciara->domain->cols);
-  rebuildVentsMatrix(sciara->substates->Mv,sciara->domain->cols,sciara->domain->rows,sciara->simulation->vent);
+  rebuildVentsMatrix(sciara->substates->Mv,sciara->domain->cols,sciara->domain->rows,(*sciara->simulation->vent));
   saveMatrixi(sciara->substates->Mv,s,sciara);
   calDeleteBuffer2Di(sciara->substates->Mv);
 

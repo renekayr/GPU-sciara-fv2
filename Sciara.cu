@@ -166,6 +166,8 @@ void init(Sciara *&sciara)
   // allocateSubstates(sciara); // substates allocation is done when the confiugration is loaded (see io.cu)
   (sciara)->parameters = new Parameters;
   (sciara)->simulation = new Simulation;
+  error = cudaMallocManaged(&(sciara)->simulation->vent, sizeof(vector<TVent>));
+  checkReturnedError(error, __LINE__, "Error allocating memory for sciara simulation->vent");
 }
 
 void finalize(Sciara *&sciara)
