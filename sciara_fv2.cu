@@ -573,9 +573,6 @@ int main(int argc, char **argv)
 
   init(sciara);
 
-  long grid_size = 420;
-  long block_size = 42;
-
   // Input data
   int max_steps = atoi(argv[MAX_STEPS_ID]);
   loadConfiguration(argv[INPUT_PATH_ID], sciara);
@@ -593,6 +590,19 @@ int main(int argc, char **argv)
   int reduceInterval = atoi(argv[REDUCE_INTERVL_ID]);
   double thickness_threshold = atof(argv[THICKNESS_THRESHOLD_ID]);
 
+  // CUDA initialization
+  // GTX980 SMs allow for a maximum 32 blocks and 2048 threads respectively
+  // block_size(32,32,1) spawns 1024 threads/block. 2048/1024 = 2 blocks/SM ==> occupancy == 1 with minimal amt. of blocks
+  // block_size(8,8,1) spawns 64 threads/block. 2048/64 = 32 blocks/SM ==> occupancy == 1 with maximal amt. of blocks
+  // configurations between 32x32 and 8x8 that divide 2048 without remainder might be beneficial when no. of blocks is to be varied while keeping maximum occupancy
+  dim3 block_size(32, 32, 1);
+  dim3 grid_size(420, 420, 1);  // TODO: make grid size function of block size and problem size
+
+  // while ((max_steps > 0 && sciara->simulation->step < max_steps) ||
+  //        (sciara->simulation->elapsed_time <= sciara->simulation->effusion_duration) ||
+  //        (total_current_lava == -1 || total_current_lava > thickness_threshold)
+  //       )
+  // {
   sciara->simulation->elapsed_time += sciara->parameters->Pclock;
   ++(sciara->simulation->step);
 
@@ -776,23 +786,19 @@ int main(int argc, char **argv)
   //   if (sciara->simulation->step % reduceInterval == 0)
   //     total_current_lava = reduceAdd(sciara->domain->rows, sciara->domain->cols, sciara->substates->Sh);
 
+  // } // while((max_steps > 0 && sciara->simulation->step < max_steps) || (sciara->simulation->elapsed_time <= sciara->simulation->effusion_duration) || (total_current_lava == -1 || total_current_lava > thickness_threshold))
+
+  //   double cl_time = static_cast<double>(cl_timer.getTimeMilliseconds()) / 1000.0;
+  //   printf("Step %d\n", sciara->simulation->step);
+  //   printf("Elapsed time [s]: %lf\n", cl_time);
+  //   printf("Emitted lava [m]: %lf\n", sciara->simulation->total_emitted_lava);
+  //   printf("Current lava [m]: %lf\n", total_current_lava);
+
+  //   printf("Saving output to %s...\n", argv[OUTPUT_PATH_ID]);
+  //   saveConfiguration(argv[OUTPUT_PATH_ID], sciara);
+
   printf("Releasing memory...\n");
   finalize(sciara);
 
   return 0;
 }
-
-// while ((max_steps > 0 && sciara->simulation->step < max_steps) || (sciara->simulation->elapsed_time <= sciara->simulation->effusion_duration) || (total_current_lava == -1 || total_current_lava > thickness_threshold))
-// {
-//   }
-
-//   double cl_time = static_cast<double>(cl_timer.getTimeMilliseconds()) / 1000.0;
-//   printf("Step %d\n", sciara->simulation->step);
-//   printf("Elapsed time [s]: %lf\n", cl_time);
-//   printf("Emitted lava [m]: %lf\n", sciara->simulation->total_emitted_lava);
-//   printf("Current lava [m]: %lf\n", total_current_lava);
-
-//   printf("Saving output to %s...\n", argv[OUTPUT_PATH_ID]);
-//   saveConfiguration(argv[OUTPUT_PATH_ID], sciara);
-
-// }
