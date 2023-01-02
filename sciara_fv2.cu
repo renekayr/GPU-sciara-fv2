@@ -12,6 +12,20 @@
 #include "util.hpp"
 #include "cudaUtil.cuh"
 
+#define gpuErrchk(ans)                    \
+  {                                       \
+    gpuAssert((ans), __FILE__, __LINE__); \
+  }
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort = true)
+{
+  if (code != cudaSuccess)
+  {
+    fprintf(stderr, "GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+    if (abort)
+      exit(code);
+  }
+}
+
 // ----------------------------------------------------------------------------
 // I/O parameters used to index argv[]
 // ----------------------------------------------------------------------------
@@ -346,6 +360,7 @@ __global__ void computeOutflowsKernel(
   {
     for (long col = col_index; col < c; col += col_stride)
     {
+      printf("computeOutflows: (%d, %d)\n", row, col);
       if (GET(Sh, c, row, col) <= 0)
         return;
 
@@ -595,8 +610,12 @@ int main(int argc, char **argv)
   // block_size(32,32,1) spawns 1024 threads/block. 2048/1024 = 2 blocks/SM ==> occupancy == 1 with minimal amt. of blocks
   // block_size(8,8,1) spawns 64 threads/block. 2048/64 = 32 blocks/SM ==> occupancy == 1 with maximal amt. of blocks
   // configurations between 32x32 and 8x8 that divide 2048 without remainder might be beneficial when no. of blocks is to be varied while keeping maximum occupancy
-  dim3 block_size(32, 32, 1);
-  dim3 grid_size(420, 420, 1);  // TODO: make grid size function of block size and problem size
+  long n = (i_end - 1) * (j_end - 1);
+  int dim_x = 4;
+  int dim_y = 4;
+  dim3 block_size(dim_x, dim_y, 1);
+  printf("block size: %dx%dx%d\n", block_size.x, block_size.y, block_size.z);
+  dim3 grid_size(ceil(n / dim_x), ceil(n / dim_y), 1);
 
   // while ((max_steps > 0 && sciara->simulation->step < max_steps) ||
   //        (sciara->simulation->elapsed_time <= sciara->simulation->effusion_duration) ||
@@ -640,9 +659,8 @@ int main(int argc, char **argv)
       sciara->substates->Sh,
       sciara->substates->Sh_next,
       sciara->substates->ST_next);
-  checkError(__LINE__);
-
-  cudaDeviceSynchronize();
+  gpuErrchk(cudaPeekAtLastError());
+  gpuErrchk(cudaDeviceSynchronize());
 
   memcpy(sciara->substates->Sh, sciara->substates->Sh_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
   memcpy(sciara->substates->ST, sciara->substates->ST_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
@@ -683,37 +701,39 @@ int main(int argc, char **argv)
       sciara->parameters->b,
       sciara->parameters->c,
       sciara->parameters->d);
-  checkError(__LINE__);
+  gpuErrchk(cudaPeekAtLastError());
+  gpuErrchk(cudaDeviceSynchronize());
 
-  cudaDeviceSynchronize();
   // Apply the massBalance mass balance kernel to the whole domain and update the Sh and ST state variables
 
-#pragma omp parallel for
-  for (int i = i_start; i < i_end; i++)
-    for (int j = j_start; j < j_end; j++)
-      massBalance(i, j,
-                  sciara->domain->rows,
-                  sciara->domain->cols,
-                  sciara->X->Xi,
-                  sciara->X->Xj,
-                  sciara->substates->Sh,
-                  sciara->substates->Sh_next,
-                  sciara->substates->ST,
-                  sciara->substates->ST_next,
-                  sciara->substates->Mf);
-  // memcpy(sciara->substates->Sh, sciara->substates->Sh_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
-  // memcpy(sciara->substates->ST, sciara->substates->ST_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
+// #pragma omp parallel for
+//   for (int i = i_start; i < i_end; i++)
+//     for (int j = j_start; j < j_end; j++)
+//       massBalance(i, j,
+//                   sciara->domain->rows,
+//                   sciara->domain->cols,
+//                   sciara->X->Xi,
+//                   sciara->X->Xj,
+//                   sciara->substates->Sh,
+//                   sciara->substates->Sh_next,
+//                   sciara->substates->ST,
+//                   sciara->substates->ST_next,
+//                   sciara->substates->Mf);
 
-  // massBalanceKernel<<<grid_size, block_size>>>(sciara->domain->rows,
-  //                                              sciara->domain->cols,
-  //                                              sciara->X->Xi,
-  //                                              sciara->X->Xj,
-  //                                              sciara->substates->Sh,
-  //                                              sciara->substates->Sh_next,
-  //                                              sciara->substates->ST,
-  //                                              sciara->substates->ST_next,
-  //                                              sciara->substates->Mf);
-  // checkError(__LINE__);
+  massBalanceKernel<<<grid_size, block_size>>>(sciara->domain->rows,
+                                               sciara->domain->cols,
+                                               sciara->X->Xi,
+                                               sciara->X->Xj,
+                                               sciara->substates->Sh,
+                                               sciara->substates->Sh_next,
+                                               sciara->substates->ST,
+                                               sciara->substates->ST_next,
+                                               sciara->substates->Mf);
+  gpuErrchk(cudaPeekAtLastError());
+  gpuErrchk(cudaDeviceSynchronize());
+
+  memcpy(sciara->substates->Sh, sciara->substates->Sh_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
+  memcpy(sciara->substates->ST, sciara->substates->ST_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
 
   //   // Apply the computeNewTemperatureAndSolidification kernel to the whole domain
 

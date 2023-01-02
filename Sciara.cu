@@ -2,22 +2,6 @@
 #include "cal2DBuffer.h"
 #include "cudaUtil.cuh"
 
-/*
-  &sciara->simulation->vent                // no allocation, vector<TVent>
-  &sciara->simulation->total_emitted_lava  // no allocation, double
-  *sciara->substates->Sh                   // done
-  *sciara->substates->Sh_next              // done
-  *sciara->substates->ST                   // done
-  *sciara->substates->ST-next              // done
-  *sciara->substates->Sz                   // done
-  *sciara->substates->Sz_next              // done
-  *sciara->substates->Mf                   // done
-  *sciara->substates->Mb                   // done
-  *sciara->substates->Mhs                  // done
-  *sciara->X->Xi                           // done
-  *sciara->X->Xj                           // done
-*/
-
 void allocateSubstates(Sciara *sciara)
 {
   cudaError_t error = cudaMallocManaged(&(sciara)->substates->Sz, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
@@ -151,6 +135,7 @@ void init(Sciara *&sciara)
   (sciara)->X = new NeighsRelativeCoords;
 
   cudaError_t error = cudaMallocManaged(&(sciara)->X->Xi, sizeof(int) * MOORE_NEIGHBORS);
+
   checkReturnedError(error, __LINE__);
 
   error = cudaMallocManaged(&(sciara)->X->Xj, sizeof(int) * MOORE_NEIGHBORS);
