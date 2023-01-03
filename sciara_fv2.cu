@@ -706,31 +706,31 @@ int main(int argc, char **argv)
 
   // Apply the massBalance mass balance kernel to the whole domain and update the Sh and ST state variables
 
-// #pragma omp parallel for
-//   for (int i = i_start; i < i_end; i++)
-//     for (int j = j_start; j < j_end; j++)
-//       massBalance(i, j,
-//                   sciara->domain->rows,
-//                   sciara->domain->cols,
-//                   sciara->X->Xi,
-//                   sciara->X->Xj,
-//                   sciara->substates->Sh,
-//                   sciara->substates->Sh_next,
-//                   sciara->substates->ST,
-//                   sciara->substates->ST_next,
-//                   sciara->substates->Mf);
+  #pragma omp parallel for
+    for (int i = i_start; i < i_end; i++)
+      for (int j = j_start; j < j_end; j++)
+        massBalance(i, j,
+                    sciara->domain->rows,
+                    sciara->domain->cols,
+                    sciara->X->Xi,
+                    sciara->X->Xj,
+                    sciara->substates->Sh,
+                    sciara->substates->Sh_next,
+                    sciara->substates->ST,
+                    sciara->substates->ST_next,
+                    sciara->substates->Mf);
 
-  massBalanceKernel<<<grid_size, block_size>>>(sciara->domain->rows,
-                                               sciara->domain->cols,
-                                               sciara->X->Xi,
-                                               sciara->X->Xj,
-                                               sciara->substates->Sh,
-                                               sciara->substates->Sh_next,
-                                               sciara->substates->ST,
-                                               sciara->substates->ST_next,
-                                               sciara->substates->Mf);
-  gpuErrchk(cudaPeekAtLastError());
-  gpuErrchk(cudaDeviceSynchronize());
+  // massBalanceKernel<<<grid_size, block_size>>>(sciara->domain->rows,
+  //                                              sciara->domain->cols,
+  //                                              sciara->X->Xi,
+  //                                              sciara->X->Xj,
+  //                                              sciara->substates->Sh,
+  //                                              sciara->substates->Sh_next,
+  //                                              sciara->substates->ST,
+  //                                              sciara->substates->ST_next,
+  //                                              sciara->substates->Mf);
+  // gpuErrchk(cudaPeekAtLastError());
+  // gpuErrchk(cudaDeviceSynchronize());
 
   memcpy(sciara->substates->Sh, sciara->substates->Sh_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
   memcpy(sciara->substates->ST, sciara->substates->ST_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
