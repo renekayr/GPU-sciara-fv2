@@ -46,251 +46,15 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort =
 #define BUF_GET(M, rows, columns, n, i, j) (M[(((n) * (rows) * (columns)) + ((i) * (columns)) + (j))])
 
 // ----------------------------------------------------------------------------
-// computing kernels, aka elementary processes in the XCA terminology
+// Computing kernels, aka elementary processes in the XCA terminology
 // ----------------------------------------------------------------------------
 
-void emitLava(
-    int i,
-    int j,
-    int r,
-    int c,
-    vector<TVent> &vent,
-    double elapsed_time,
-    double Pclock,
-    double emission_time,
-    double &total_emitted_lava,
-    double Pac,
-    double PTvent,
-    double *Sh,
-    double *Sh_next,
-    double *ST_next)
-{
-  for (int k = 0; k < vent.size(); k++)
-    if (i == vent[k].y() && j == vent[k].x())
-    {
-      SET(Sh_next, c, i, j, GET(Sh, c, i, j) + vent[k].thickness(elapsed_time, Pclock, emission_time, Pac));
-      SET(ST_next, c, i, j, PTvent);
-
-      total_emitted_lava += vent[k].thickness(elapsed_time, Pclock, emission_time, Pac);
-    }
-}
-
-void computeOutflows(
-    int i,
-    int j,
-    int r,
-    int c,
-    int *Xi,
-    int *Xj,
-    double *Sz,
-    double *Sh,
-    double *ST,
-    double *Mf,
-    double Pc,
-    double _a,
-    double _b,
-    double _c,
-    double _d)
-{
-  bool eliminated[MOORE_NEIGHBORS];
-  double z[MOORE_NEIGHBORS];
-  double h[MOORE_NEIGHBORS];
-  double H[MOORE_NEIGHBORS];
-  double theta[MOORE_NEIGHBORS];
-  double w[MOORE_NEIGHBORS];  // Distances between central and adjecent cells
-  double Pr[MOORE_NEIGHBORS]; // Relaiation rate arraj
-  // double f[MOORE_NEIGHBORS];
-  bool loop;
-  int counter;
-  double sz0, sz, T, avg, rr, hc;
-
-  if (GET(Sh, c, i, j) <= 0)
-    return;
-
-  T = GET(ST, c, i, j);
-  rr = pow(10, _a + _b * T);
-  hc = pow(10, _c + _d * T);
-
-  for (int k = 0; k < MOORE_NEIGHBORS; k++)
-  {
-    sz0 = GET(Sz, c, i, j);
-    sz = GET(Sz, c, i + Xi[k], j + Xj[k]);
-    h[k] = GET(Sh, c, i + Xi[k], j + Xj[k]);
-    w[k] = Pc;
-    Pr[k] = rr;
-
-    if (k < VON_NEUMANN_NEIGHBORS)
-      z[k] = sz;
-    else
-      z[k] = sz0 - (sz0 - sz) / sqrt(2.0);
-  }
-
-  H[0] = z[0];
-  theta[0] = 0;
-  eliminated[0] = false;
-  for (int k = 1; k < MOORE_NEIGHBORS; k++)
-    if (z[0] + h[0] > z[k] + h[k])
-    {
-      H[k] = z[k] + h[k];
-      theta[k] = atan(((z[0] + h[0]) - (z[k] + h[k])) / w[k]);
-      eliminated[k] = false;
-    }
-    else
-    {
-      // H[k] = 0;
-      // theta[k] = 0;
-      eliminated[k] = true;
-    }
-
-  do
-  {
-    loop = false;
-    avg = h[0];
-    counter = 0;
-    for (int k = 0; k < MOORE_NEIGHBORS; k++)
-      if (!eliminated[k])
-      {
-        avg += H[k];
-        counter++;
-      }
-    if (counter != 0)
-      avg = avg / double(counter);
-    for (int k = 0; k < MOORE_NEIGHBORS; k++)
-      if (!eliminated[k] && avg <= H[k])
-      {
-        eliminated[k] = true;
-        loop = true;
-      }
-  } while (loop);
-
-  for (int k = 1; k < MOORE_NEIGHBORS; k++)
-    if (!eliminated[k] && h[0] > hc * cos(theta[k]))
-      BUF_SET(Mf, r, c, k - 1, i, j, Pr[k] * (avg - H[k]));
-    else
-      BUF_SET(Mf, r, c, k - 1, i, j, 0.0);
-}
-
-void massBalance(
-    int i,
-    int j,
-    int r,
-    int c,
-    int *Xi,
-    int *Xj,
-    double *Sh,
-    double *Sh_next,
-    double *ST,
-    double *ST_next,
-    double *Mf)
-{
-  const int inflowsIndices[NUMBER_OF_OUTFLOWS] = {3, 2, 1, 0, 6, 7, 4, 5};
-  double inFlow;
-  double outFlow;
-  double neigh_t;
-  double initial_h = GET(Sh, c, i, j);
-  double initial_t = GET(ST, c, i, j);
-  double h_next = initial_h;
-  double t_next = initial_h * initial_t;
-
-  // printf("i = %d, j = %d\n", i, j);
-  for (int n = 1; n < MOORE_NEIGHBORS; n++)
-  {
-    if (i == 377 && j == 241)
-    {
-      printf("beginning\n");
-    }
-    neigh_t = GET(ST, c, i + Xi[n], j + Xj[n]);
-    if (i == 377 && j == 241)
-    {
-      printf("neigh!\n");
-      printf("n = %d, ", n);
-      printf("r = %d, ", r);
-      printf("c = %d, ", c);
-      printf("inflowsIndices = %d, ", inflowsIndices[n - 1]);
-      printf("Xi = %d, ", Xi[n]);
-      printf("Xj = %d\n", Xj[n]);
-    }
-
-    inFlow = BUF_GET(Mf, r, c, inflowsIndices[n - 1], i + Xi[n], j + Xj[n]);
-    if (i == 377 && j == 241)
-      printf("assigned inflow\n");
-
-    outFlow = BUF_GET(Mf, r, c, n - 1, i, j);
-    if (i == 377 && j == 241)
-      printf("assigned outflow\n");
-
-    h_next += inFlow - outFlow;
-    if (i == 377 && j == 241)
-      printf("ass'd h_next\n");
-    t_next += (inFlow * neigh_t - outFlow * initial_t);
-    if (i == 377 && j == 241)
-      printf("ass'd t_next\n");
-  }
-
-  if (i == 377 && j == 241)
-    printf("outside the loop\n");
-
-  if (h_next > 0)
-  {
-    printf("h_next > 0\n");
-    t_next /= h_next;
-    SET(ST_next, c, i, j, t_next);
-    SET(Sh_next, c, i, j, h_next);
-    printf("h_next > 0 end\n");
-  }
-}
-
-void computeNewTemperatureAndSolidification(
-    int i,
-    int j,
-    int r,
-    int c,
-    double Pepsilon,
-    double Psigma,
-    double Pclock,
-    double Pcool,
-    double Prho,
-    double Pcv,
-    double Pac,
-    double PTsol,
-    double *Sz,
-    double *Sz_next,
-    double *Sh,
-    double *Sh_next,
-    double *ST,
-    double *ST_next,
-    double *Mf,
-    double *Mhs,
-    bool *Mb)
-{
-  double nT, aus;
-  double z = GET(Sz, c, i, j);
-  double h = GET(Sh, c, i, j);
-  double T = GET(ST, c, i, j);
-
-  if (h > 0 && GET(Mb, c, i, j) == false)
-  {
-    aus = 1.0 + (3 * pow(T, 3.0) * Pepsilon * Psigma * Pclock * Pcool) / (Prho * Pcv * h * Pac);
-    nT = T / pow(aus, 1.0 / 3.0);
-
-    if (nT > PTsol) // no solidification
-      SET(ST_next, c, i, j, nT);
-    else // solidification
-    {
-      SET(Sz_next, c, i, j, z + h);
-      SET(Sh_next, c, i, j, 0.0);
-      SET(ST_next, c, i, j, PTsol);
-      SET(Mhs, c, i, j, GET(Mhs, c, i, j) + h);
-    }
-  }
-}
-
+// No tiled implementation as each thread only accesses one element
 __global__ void emitLavaKernel(
     int r,
     int c,
-    // vector<TVent> &vent,
     TVent *vent,
-    int n_vent, // vent.size()
+    int n_vent,
     double elapsed_time,
     double Pclock,
     double emission_time,
@@ -324,6 +88,7 @@ __global__ void emitLavaKernel(
   }
 }
 
+// This kernel utilizes a tiled algorithm with halo cells
 __global__ void computeOutflowsKernel(
     int r,
     int c,
@@ -344,14 +109,18 @@ __global__ void computeOutflowsKernel(
   long row_stride = blockDim.y * gridDim.y;
   long col_stride = blockDim.x * gridDim.x;
 
+  // TODO: Implement tiled algorithm with halo cells
+  //  - determine what to buffer in shared memory
+  //  - determine how to access the buffers correctly (indexing)
+  //  - 
+
   bool eliminated[MOORE_NEIGHBORS];
   double z[MOORE_NEIGHBORS];
   double h[MOORE_NEIGHBORS];
   double H[MOORE_NEIGHBORS];
   double theta[MOORE_NEIGHBORS];
   double w[MOORE_NEIGHBORS];  // Distances between central and adjecent cells
-  double Pr[MOORE_NEIGHBORS]; // Relaiation rate arraj
-  // double f[MOORE_NEIGHBORS];
+  double Pr[MOORE_NEIGHBORS]; // Relaiation rate array
   bool loop;
   int counter;
   double sz0, sz, T, avg, rr, hc;
@@ -433,6 +202,7 @@ __global__ void computeOutflowsKernel(
   }
 }
 
+// This kernel utilizes a tiled algorithm with halo cells
 __global__ void massBalanceKernel(
     int r,
     int c,
@@ -442,45 +212,74 @@ __global__ void massBalanceKernel(
     double *Sh_next,
     double *ST,
     double *ST_next,
-    double *Mf)
+    double *Mf,
+    int tile_size,
+    int mask_size)
 {
-  long col_index = threadIdx.x + blockDim.x * blockIdx.x;
-  long row_index = threadIdx.y + blockDim.y * blockIdx.y;
-  long row_stride = blockDim.y * gridDim.y;
-  long col_stride = blockDim.x * gridDim.x;
+  long col_index = threadIdx.x + tile_size * blockIdx.x;
+  long row_index = threadIdx.y + tile_size * blockIdx.y;
+  long col_halo = col_index - mask_size/2;
+  long row_halo = row_index - mask_size/2;
 
-  const int inflowsIndices[NUMBER_OF_OUTFLOWS] = {3, 2, 1, 0, 6, 7, 4, 5};
+  __constant__ const int inflowsIndices[NUMBER_OF_OUTFLOWS] = {3, 2, 1, 0, 6, 7, 4, 5};
   double inFlow, outFlow, neigh_t, initial_h, initial_t, h_next, t_next;
-  for (long row = row_index; row < r; row += row_stride)
-  {
-    for (long col = col_index; col < c; col += col_stride)
+
+  // With 2 buffers, total consumed shared memory in bytes is
+  // 2 * sizeof(double) * (tile_size + mask_size - 1)^2
+  __shared__ double ST_ds[pow(tile_size + mask_size - 1, 2)];
+  __shared__ double Mf_ds[8 * pow(tile_size + mask_size - 1, 2)];
+
+  // !TODO: replace row and col (leftover from grid stride) with appropriate values
+
+  // Phase 1: All block threads copy values into shared memory
+  // TODO: Individual check for each buffer because they are indexed differently
+  if((col_halo >= 0) && (col_halo < c) && (row_halo >= 0) && (row_halo < r)) {
+    ST_ds[threadIdx.x + threadIdx.y * c] = GET(ST, c, row + Xi[n], col + Xj[n]);  // TODO: load appropriate values into shared memory
+    for(int n = 1; n < MOORE_NEIGHBORS; ++n) {
+      // TODO: load appropriate values into shared memory
+      // TODO: offset populating indices of Mf according to tile to have indices match up
+      // (indexing assumes all of MF, but buffer is smaller)
+      Mf_ds[((inflowsIndices[n - 1]) * (r) * (c)) + ((row + Xi[n]) * (c)) + (col + Xj[n])] = 
+        BUF_GET(Mf_ds, r, c, inflowsIndices[n - 1], row + Xi[n], col + Xj[n]);
+    }
+  }
+  // TODO: Determine what happens in the serial implementation at the edge of domain,
+  // e.g. when accessing moore neighbors of ST[0,0] and determine how to handle these accesses with haloes.
+  // Insert neutral element or not treat this case at all?
+  //
+  // else {
+  //   ST_ds[threadIdx.x + threadIdx.y * c] = 0.0;  // TODO: Check how serial implementation handles out of bounds indexing?
+  //   Mf_ds[] = 0.0;  // TODO: Check how serial implementation handles out of bounds indexing?
+  // }
+  __syncthreads();
+
+  // phase 2: tile threads compute outputs (no grid stride)
+  if(threadIdx.y < tile_size && threadIdx.y < tile_size) {
+    initial_h = GET(Sh, c, row, col);
+    initial_t = GET(ST, c, row, col);
+    h_next = initial_h;
+    t_next = initial_h * initial_t;
+
+    for (int n = 1; n < MOORE_NEIGHBORS; ++n)
     {
-      initial_h = GET(Sh, c, row, col);
-      initial_t = GET(ST, c, row, col);
-      h_next = initial_h;
-      t_next = initial_h * initial_t;
+      neigh_t = GET(ST_ds, c, row + Xi[n], col + Xj[n]);  // TODO: Access shared memory with correct index
+      // inFlow = BUF_GET(Mf_ds, r, c, inflowsIndices[n - 1], row + Xi[n], col + Xj[n]);  // TODO: Access shared memory with correct index
+      // outFlow = BUF_GET(Mf_ds, r, c, n - 1, row, col);  // TODO: Access shared memory with correct index
 
-      for (int n = 1; n < MOORE_NEIGHBORS; ++n)
-      {
-        neigh_t = GET(ST, c, row + Xi[n], col + Xj[n]);
-        inFlow = BUF_GET(Mf, r, c, inflowsIndices[n - 1], row + Xi[n], col + Xj[n]);
+      h_next += inFlow - outFlow;
+      t_next += (inFlow * neigh_t - outFlow * initial_t);
+    }
 
-        outFlow = BUF_GET(Mf, r, c, n - 1, row, col);
-
-        h_next += inFlow - outFlow;
-        t_next += (inFlow * neigh_t - outFlow * initial_t);
-      }
-
-      if (h_next > 0)
-      {
-        t_next /= h_next;
-        SET(ST_next, c, row, col, t_next);
-        SET(Sh_next, c, row, col, h_next);
-      }
+    if (h_next > 0)
+    {
+      t_next /= h_next;
+      SET(ST_next, c, row, col, t_next);
+      SET(Sh_next, c, row, col, h_next);
     }
   }
 }
 
+// No tiled implementation. There are no overlapping buffer accesses -> no possible performance gain
 __global__ void computeNewTemperatureAndSolidificationKernel(
     int r,
     int c,
@@ -547,7 +346,7 @@ void boundaryConditions(
     double *ST,
     double *ST_next)
 {
-  return;
+  return;  // what?
   if (GET(Mb, c, i, j))
   {
     SET(Sh_next, c, i, j, 0.0);
@@ -565,27 +364,12 @@ double reduceAdd(int r, int c, double *buffer)
   return sum;
 }
 
-//-----------------------------------------------------------------------------
-// Checking the contents of Mf (delete later)
-//----------------------------------------------------------------------------
-void checkMf(double *buffer, int i_start, int i_end, int j_start, int j_end, int rows, int cols)
-{
-  for (int i = i_start; i < i_end; ++i)
-  {
-    for (int j = j_start; j < j_end; ++j)
-    {
-      printf("%d ", BUF_GET(buffer, rows, cols, 0, i, j));
-    }
-  }
-}
-
 // ----------------------------------------------------------------------------
 // Function main()
 // ----------------------------------------------------------------------------
 int main(int argc, char **argv)
 {
   Sciara *sciara;
-
   init(sciara);
 
   // Input data
@@ -596,59 +380,35 @@ int main(int argc, char **argv)
   int i_start = 0, i_end = sciara->domain->rows; // [i_start,i_end[: kernels application range along the rows
   int j_start = 0, j_end = sciara->domain->cols; // [j_start,j_end[: kernels application range along the cols
 
-  // simulation initialization and loop
+  // Simulation initialization and loop
   double total_current_lava = -1;
   simulationInitialize(sciara);
-
   util::Timer cl_timer;
-
   int reduceInterval = atoi(argv[REDUCE_INTERVL_ID]);
   double thickness_threshold = atof(argv[THICKNESS_THRESHOLD_ID]);
 
-  // CUDA initialization
-  // GTX980 SMs allow for a maximum 32 blocks and 2048 threads respectively
-  // block_size(32,32,1) spawns 1024 threads/block. 2048/1024 = 2 blocks/SM ==> occupancy == 1 with minimal amt. of blocks
-  // block_size(8,8,1) spawns 64 threads/block. 2048/64 = 32 blocks/SM ==> occupancy == 1 with maximal amt. of blocks
-  // configurations between 32x32 and 8x8 that divide 2048 without remainder might be beneficial when no. of blocks is to be varied while keeping maximum occupancy
-  long n = (i_end - 1) * (j_end - 1);
-  int dim_x = 4;
-  int dim_y = 4;
-  dim3 block_size(dim_x, dim_y, 1);
-  printf("block size: %dx%dx%d\n", block_size.x, block_size.y, block_size.z);
-  dim3 grid_size(ceil(n / dim_x), ceil(n / dim_y), 1);
+  long n = (i_end - 1) * (j_end - 1);  // problem size
 
-  // while ((max_steps > 0 && sciara->simulation->step < max_steps) ||
-  //        (sciara->simulation->elapsed_time <= sciara->simulation->effusion_duration) ||
-  //        (total_current_lava == -1 || total_current_lava > thickness_threshold)
-  //       )
-  // {
-  sciara->simulation->elapsed_time += sciara->parameters->Pclock;
-  ++(sciara->simulation->step);
+  // CUDA init
+  int non_tiled_block_size_x = 4;
+  int non_tiled_block_size_y = 4;
+  dim3 non_tiled_block_size(dim_x, dim_y, 1);
+  dim3 non_tiled_grid_size(ceil(n / non_tiled_block_size_x), ceil(n / non_tiled_block_size_y), 1);
 
+  // Tile size can be dynamically calculated by using tile_size = 1 - mask_width - (pow(max_shared_memory, 2) / pow(sizeof(datatype), 2))
+  // max_shared_memory can be queried from the CUDA API at runtime
+  // This formula is derived by solving the following equation for for tile_size:
+  // max_shared_memory = (mask_size + tile_size - 1)^2 * sizeof(datatype)
+  int tile_size = 4;  // else, an arbitrary or estimated amount that does not surpass the GPU's capacity is chosen
+  int block_width = tile_size + mask_size - 1;
+  dim3 block_size(block_width, block_width, 1);
+  dim3 grid_size(ceil(n / tile_size), ceil(n / tile_size), 1);
   // Apply the emitLava kernel to the whole domain and update the Sh and ST state variables
-
-  // #pragma omp parallel for
-  //       for (int i = i_start; i < i_end; i++) for (int j = j_start; j < j_end; j++)
-  //           emitLava(i, j,
-  //                    sciara->domain->rows,
-  //                    sciara->domain->cols,
-  //                    sciara->simulation->vent,
-  //                    sciara->simulation->elapsed_time,
-  //                    sciara->parameters->Pclock,
-  //                    sciara->simulation->emission_time,
-  //                    sciara->simulation->total_emitted_lava,
-  //                    sciara->parameters->Pac,
-  //                    sciara->parameters->PTvent,
-  //                    sciara->substates->Sh,
-  //                    sciara->substates->Sh_next,
-  //                    sciara->substates->ST_next);
-  //   memcpy(sciara->substates->Sh, sciara->substates->Sh_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
-  //   memcpy(sciara->substates->ST, sciara->substates->ST_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
-
-  emitLavaKernel<<<grid_size, block_size>>>(
+  // For &(*sciara->simulation->vent)[0], assume the STL-vector specification to guarantee contiguous storage of elements (http://www.open-std.org/jtc1/sc22/wg21/docs/lwg-defects.html#69)
+  emitLavaKernel<<<non_tiled_grid_size, non_tiled_block_size>>>(
       sciara->domain->rows,
       sciara->domain->cols,
-      &(*sciara->simulation->vent)[0], // assume the STL-vector specification to guarantee contiguous storage of elements (http://www.open-std.org/jtc1/sc22/wg21/docs/lwg-defects.html#69)
+      &(*sciara->simulation->vent)[0],
       (*sciara->simulation->vent).size(),
       sciara->simulation->elapsed_time,
       sciara->parameters->Pclock,
@@ -661,32 +421,11 @@ int main(int argc, char **argv)
       sciara->substates->ST_next);
   gpuErrchk(cudaPeekAtLastError());
   gpuErrchk(cudaDeviceSynchronize());
-
   memcpy(sciara->substates->Sh, sciara->substates->Sh_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
   memcpy(sciara->substates->ST, sciara->substates->ST_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
 
   //  Apply the computeOutflows kernel to the whole domain
-
-  // #pragma omp parallel for
-  //   for (int i = i_start; i < i_end; i++)
-  //     for (int j = j_start; j < j_end; j++)
-  //       computeOutflows(
-  //           i,
-  //           j,
-  //           sciara->domain->rows,
-  //           sciara->domain->cols,
-  //           sciara->X->Xi,
-  //           sciara->X->Xj,
-  //           sciara->substates->Sz,
-  //           sciara->substates->Sh,
-  //           sciara->substates->ST,
-  //           sciara->substates->Mf,
-  //           sciara->parameters->Pc,
-  //           sciara->parameters->a,
-  //           sciara->parameters->b,
-  //           sciara->parameters->c,
-  //           sciara->parameters->d);
-
+  // TODO: Adapt kernel launch to tiled grid
   computeOutflowsKernel<<<grid_size, block_size>>>(
       sciara->domain->rows,
       sciara->domain->cols,
@@ -705,117 +444,74 @@ int main(int argc, char **argv)
   gpuErrchk(cudaDeviceSynchronize());
 
   // Apply the massBalance mass balance kernel to the whole domain and update the Sh and ST state variables
-
-  #pragma omp parallel for
-    for (int i = i_start; i < i_end; i++)
-      for (int j = j_start; j < j_end; j++)
-        massBalance(i, j,
-                    sciara->domain->rows,
-                    sciara->domain->cols,
-                    sciara->X->Xi,
-                    sciara->X->Xj,
-                    sciara->substates->Sh,
-                    sciara->substates->Sh_next,
-                    sciara->substates->ST,
-                    sciara->substates->ST_next,
-                    sciara->substates->Mf);
-
-  // massBalanceKernel<<<grid_size, block_size>>>(sciara->domain->rows,
-  //                                              sciara->domain->cols,
-  //                                              sciara->X->Xi,
-  //                                              sciara->X->Xj,
-  //                                              sciara->substates->Sh,
-  //                                              sciara->substates->Sh_next,
-  //                                              sciara->substates->ST,
-  //                                              sciara->substates->ST_next,
-  //                                              sciara->substates->Mf);
-  // gpuErrchk(cudaPeekAtLastError());
-  // gpuErrchk(cudaDeviceSynchronize());
-
+  massBalanceKernel<<<grid_size, block_size>>>(sciara->domain->rows,
+                                               sciara->domain->cols,
+                                               sciara->X->Xi,
+                                               sciara->X->Xj,
+                                               sciara->substates->Sh,
+                                               sciara->substates->Sh_next,
+                                               sciara->substates->ST,
+                                               sciara->substates->ST_next,
+                                               sciara->substates->Mf);
+  gpuErrchk(cudaPeekAtLastError());
+  gpuErrchk(cudaDeviceSynchronize());
   memcpy(sciara->substates->Sh, sciara->substates->Sh_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
   memcpy(sciara->substates->ST, sciara->substates->ST_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
 
-  //   // Apply the computeNewTemperatureAndSolidification kernel to the whole domain
+  // Apply the computeNewTemperatureAndSolidification kernel to the whole domain
+  computeNewTemperatureAndSolidificationKernel<<<non_tiled_grid_size, non_tiled_block_size>>>(
+      sciara->domain->rows,
+      sciara->domain->cols,
+      sciara->parameters->Pepsilon,
+      sciara->parameters->Psigma,
+      sciara->parameters->Pclock,
+      sciara->parameters->Pcool,
+      sciara->parameters->Prho,
+      sciara->parameters->Pcv,
+      sciara->parameters->Pac,
+      sciara->parameters->PTsol,
+      sciara->substates->Sz,
+      sciara->substates->Sz_next,
+      sciara->substates->Sh,
+      sciara->substates->Sh_next,
+      sciara->substates->ST,
+      sciara->substates->ST_next,
+      sciara->substates->Mf,
+      sciara->substates->Mhs,
+      sciara->substates->Mb);
+  gpuErrchk(cudaPeekAtLastError());
+  gpuErrchk(cudaDeviceSynchronize());
+  memcpy(sciara->substates->Sz, sciara->substates->Sz_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
+  memcpy(sciara->substates->Sh, sciara->substates->Sh_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
+  memcpy(sciara->substates->ST, sciara->substates->ST_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
 
-  // #pragma omp parallel for
-  //   for (int i = i_start; i < i_end; i++)
-  //     for (int j = j_start; j < j_end; j++)
-  //       computeNewTemperatureAndSolidification(i, j,
-  //                                              sciara->domain->rows,
-  //                                              sciara->domain->cols,
-  //                                              sciara->parameters->Pepsilon,
-  //                                              sciara->parameters->Psigma,
-  //                                              sciara->parameters->Pclock,
-  //                                              sciara->parameters->Pcool,
-  //                                              sciara->parameters->Prho,
-  //                                              sciara->parameters->Pcv,
-  //                                              sciara->parameters->Pac,
-  //                                              sciara->parameters->PTsol,
-  //                                              sciara->substates->Sz,
-  //                                              sciara->substates->Sz_next,
-  //                                              sciara->substates->Sh,
-  //                                              sciara->substates->Sh_next,
-  //                                              sciara->substates->ST,
-  //                                              sciara->substates->ST_next,
-  //                                              sciara->substates->Mf,
-  //                                              sciara->substates->Mhs,
-  //                                              sciara->substates->Mb);
-  // memcpy(sciara->substates->Sz, sciara->substates->Sz_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
-  // memcpy(sciara->substates->Sh, sciara->substates->Sh_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
-  // memcpy(sciara->substates->ST, sciara->substates->ST_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
+  // Apply the boundaryConditions kernel to the whole domain and update the Sh and ST state variables
+  #pragma omp parallel for
+    for (int i = i_start; i < i_end; i++)
+      for (int j = j_start; j < j_end; j++)
+        boundaryConditions(i, j,
+                           sciara->domain->rows,
+                           sciara->domain->cols,
+                           sciara->substates->Mf,
+                           sciara->substates->Mb,
+                           sciara->substates->Sh,
+                           sciara->substates->Sh_next,
+                           sciara->substates->ST,
+                           sciara->substates->ST_next);
+    memcpy(sciara->substates->Sh, sciara->substates->Sh_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
+    memcpy(sciara->substates->ST, sciara->substates->ST_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
 
-  // computeNewTemperatureAndSolidificationKernel<<<grid_size, block_size>>>(
-  //     sciara->domain->rows,
-  //     sciara->domain->cols,
-  //     sciara->parameters->Pepsilon,
-  //     sciara->parameters->Psigma,
-  //     sciara->parameters->Pclock,
-  //     sciara->parameters->Pcool,
-  //     sciara->parameters->Prho,
-  //     sciara->parameters->Pcv,
-  //     sciara->parameters->Pac,
-  //     sciara->parameters->PTsol,
-  //     sciara->substates->Sz,
-  //     sciara->substates->Sz_next,
-  //     sciara->substates->Sh,
-  //     sciara->substates->Sh_next,
-  //     sciara->substates->ST,
-  //     sciara->substates->ST_next,
-  //     sciara->substates->Mf,
-  //     sciara->substates->Mhs,
-  //     sciara->substates->Mb);
-  // checkError(__LINE__);
+    // Global reduction
+    if (sciara->simulation->step % reduceInterval == 0)
+      total_current_lava = reduceAdd(sciara->domain->rows, sciara->domain->cols, sciara->substates->Sh);
 
-  //   // Apply the boundaryConditions kernel to the whole domain and update the Sh and ST state variables
-  // #pragma omp parallel for
-  //   for (int i = i_start; i < i_end; i++)
-  //     for (int j = j_start; j < j_end; j++)
-  //       boundaryConditions(i, j,
-  //                          sciara->domain->rows,
-  //                          sciara->domain->cols,
-  //                          sciara->substates->Mf,
-  //                          sciara->substates->Mb,
-  //                          sciara->substates->Sh,
-  //                          sciara->substates->Sh_next,
-  //                          sciara->substates->ST,
-  //                          sciara->substates->ST_next);
-  //   memcpy(sciara->substates->Sh, sciara->substates->Sh_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
-  //   memcpy(sciara->substates->ST, sciara->substates->ST_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
+    double cl_time = static_cast<double>(cl_timer.getTimeMilliseconds()) / 1000.0;
+    printf("Elapsed time [s]: %lf\n", cl_time);
+    printf("Emitted lava [m]: %lf\n", sciara->simulation->total_emitted_lava);
+    printf("Current lava [m]: %lf\n", total_current_lava);
 
-  //   // Global reduction
-  //   if (sciara->simulation->step % reduceInterval == 0)
-  //     total_current_lava = reduceAdd(sciara->domain->rows, sciara->domain->cols, sciara->substates->Sh);
-
-  // } // while((max_steps > 0 && sciara->simulation->step < max_steps) || (sciara->simulation->elapsed_time <= sciara->simulation->effusion_duration) || (total_current_lava == -1 || total_current_lava > thickness_threshold))
-
-  //   double cl_time = static_cast<double>(cl_timer.getTimeMilliseconds()) / 1000.0;
-  //   printf("Step %d\n", sciara->simulation->step);
-  //   printf("Elapsed time [s]: %lf\n", cl_time);
-  //   printf("Emitted lava [m]: %lf\n", sciara->simulation->total_emitted_lava);
-  //   printf("Current lava [m]: %lf\n", total_current_lava);
-
-  //   printf("Saving output to %s...\n", argv[OUTPUT_PATH_ID]);
-  //   saveConfiguration(argv[OUTPUT_PATH_ID], sciara);
+    printf("Saving output to %s...\n", argv[OUTPUT_PATH_ID]);
+    saveConfiguration(argv[OUTPUT_PATH_ID], sciara);
 
   printf("Releasing memory...\n");
   finalize(sciara);
