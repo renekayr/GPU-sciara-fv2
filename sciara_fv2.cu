@@ -102,17 +102,14 @@ __global__ void computeOutflowsKernel(
     double _a,
     double _b,
     double _c,
-    double _d)
+    double _d,
+    int tile_size,
+    int mask_size)
 {
-  long row_index = threadIdx.y + blockDim.y * blockIdx.y;
-  long col_index = threadIdx.x + blockDim.x * blockIdx.x;
-  long row_stride = blockDim.y * gridDim.y;
-  long col_stride = blockDim.x * gridDim.x;
-
-  // TODO: Implement tiled algorithm with halo cells
-  //  - determine what to buffer in shared memory
-  //  - determine how to access the buffers correctly (indexing)
-  //  - 
+  long col_index = threadIdx.x + tile_size * blockIdx.x;
+  long row_index = threadIdx.y + tile_size * blockIdx.y;
+  long col_halo = col_index - mask_size/2;
+  long row_halo = row_index - mask_size/2;
 
   bool eliminated[MOORE_NEIGHBORS];
   double z[MOORE_NEIGHBORS];
@@ -125,79 +122,87 @@ __global__ void computeOutflowsKernel(
   int counter;
   double sz0, sz, T, avg, rr, hc;
 
-  for (long row = row_index; row < r; row += row_stride)
-  {
-    for (long col = col_index; col < c; col += col_stride)
+  __shared__ double Sz_ds[pow(tile_size + mask_size - 1, 2)];
+  __shared__ double Sh_ds[pow(tile_size + mask_size - 1, 2)];
+
+  // Phase 1: All block threads copy values into shared memory
+  // TODO: check for correctness of filling buffers with all threads in block
+  if((col_halo >= 0) && (col_halo < c) && (row_halo >= 0) && (row_halo < r)) {
+    Sz_ds[threadIdx.x + threadIdx.y * c] = GET(Sz, c, row + Xi[k], col + Xj[k]);  // TODO: load appropriate values into shared memory
+    Sh_ds[threadIdx.x + threadIdx.y * c] = GET(Sh, c, row + Xi[k], col + Xj[k]);  // TODO: load appropriate values into shared memory
+  }
+  // TODO: determine what to do if out of bounds (see massBalanceKernel)
+
+  // phase 2: tile threads compute outputs (no grid stride)
+  // TODO: guard against out of bounds access in the buffers?
+  if(threadIdx.x < tile_size && threadIdx.y < tile_size) {
+    if (GET(Sh, c, row, col) <= 0)  // lava is solidified
+      return;
+
+    T = GET(ST, c, row, col);
+    rr = pow(10, _a + _b * T);
+    hc = pow(10, _c + _d * T);
+
+    for (int k = 0; k < MOORE_NEIGHBORS; ++k)
     {
-      printf("computeOutflows: (%d, %d)\n", row, col);
-      if (GET(Sh, c, row, col) <= 0)
-        return;
+      sz0 = GET(Sz, c, row, col);
+      // sz = GET(Sz_ds, c, row + Xi[k], col + Xj[k]);  // TODO: Access shared memory with correct index
+      // h[k] = GET(Sh_ds, c, row + Xi[k], col + Xj[k]);  // TODO: Access shared memory with correct index
+      w[k] = Pc;
+      Pr[k] = rr;
 
-      T = GET(ST, c, row, col);
-      rr = pow(10, _a + _b * T);
-      hc = pow(10, _c + _d * T);
+      if (k < VON_NEUMANN_NEIGHBORS)
+        z[k] = sz;
+      else
+        z[k] = sz0 - (sz0 - sz) / sqrt(2.0);
+    }
 
+    H[0] = z[0];
+    theta[0] = 0;
+    eliminated[0] = false;
+    for (int k = 1; k < MOORE_NEIGHBORS; ++k)
+    {
+      if (z[0] + h[0] > z[k] + h[k])
+      {
+        H[k] = z[k] + h[k];
+        theta[k] = atan(((z[0] + h[0]) - (z[k] + h[k])) / w[k]);
+        eliminated[k] = false;
+      }
+      else
+      {
+        // H[k] = 0;
+        // theta[k] = 0;
+        eliminated[k] = true;
+      }
+    }
+
+    do
+    {
+      loop = false;
+      avg = h[0];
+      counter = 0;
       for (int k = 0; k < MOORE_NEIGHBORS; ++k)
-      {
-        sz0 = GET(Sz, c, row, col);
-        sz = GET(Sz, c, row + Xi[k], col + Xj[k]);
-        h[k] = GET(Sh, c, row + Xi[k], col + Xj[k]);
-        w[k] = Pc;
-        Pr[k] = rr;
-
-        if (k < VON_NEUMANN_NEIGHBORS)
-          z[k] = sz;
-        else
-          z[k] = sz0 - (sz0 - sz) / sqrt(2.0);
-      }
-
-      H[0] = z[0];
-      theta[0] = 0;
-      eliminated[0] = false;
-      for (int k = 1; k < MOORE_NEIGHBORS; ++k)
-      {
-        if (z[0] + h[0] > z[k] + h[k])
+        if (!eliminated[k])
         {
-          H[k] = z[k] + h[k];
-          theta[k] = atan(((z[0] + h[0]) - (z[k] + h[k])) / w[k]);
-          eliminated[k] = false;
+          avg += H[k];
+          ++counter;
         }
-        else
+      if (counter != 0)
+        avg = avg / double(counter);
+      for (int k = 0; k < MOORE_NEIGHBORS; ++k)
+        if (!eliminated[k] && avg <= H[k])
         {
-          // H[k] = 0;
-          // theta[k] = 0;
           eliminated[k] = true;
+          loop = true;
         }
-      }
+    } while (loop);
 
-      do
-      {
-        loop = false;
-        avg = h[0];
-        counter = 0;
-        for (int k = 0; k < MOORE_NEIGHBORS; ++k)
-          if (!eliminated[k])
-          {
-            avg += H[k];
-            ++counter;
-          }
-        if (counter != 0)
-          avg = avg / double(counter);
-        for (int k = 0; k < MOORE_NEIGHBORS; ++k)
-          if (!eliminated[k] && avg <= H[k])
-          {
-            eliminated[k] = true;
-            loop = true;
-          }
-      } while (loop);
-
-      for (int k = 1; k < MOORE_NEIGHBORS; ++k)
-      {
-        if (!eliminated[k] && h[0] > hc * cos(theta[k]))
-          BUF_SET(Mf, r, c, k - 1, row, col, Pr[k] * (avg - H[k]));
-        else
-          BUF_SET(Mf, r, c, k - 1, row, col, 0.0);
-      }
+    for (int k = 1; k < MOORE_NEIGHBORS; ++k)
+    {
+      if (!eliminated[k] && h[0] > hc * cos(theta[k]))
+        BUF_SET(Mf, r, c, k - 1, row, col, Pr[k] * (avg - H[k]));
+      else
+        BUF_SET(Mf, r, c, k - 1, row, col, 0.0);
     }
   }
 }
@@ -254,7 +259,7 @@ __global__ void massBalanceKernel(
   __syncthreads();
 
   // phase 2: tile threads compute outputs (no grid stride)
-  if(threadIdx.y < tile_size && threadIdx.y < tile_size) {
+  if(threadIdx.x < tile_size && threadIdx.y < tile_size) {
     initial_h = GET(Sh, c, row, col);
     initial_t = GET(ST, c, row, col);
     h_next = initial_h;
@@ -263,8 +268,7 @@ __global__ void massBalanceKernel(
     for (int n = 1; n < MOORE_NEIGHBORS; ++n)
     {
       neigh_t = GET(ST_ds, c, row + Xi[n], col + Xj[n]);  // TODO: Access shared memory with correct index
-      // inFlow = BUF_GET(Mf_ds, r, c, inflowsIndices[n - 1], row + Xi[n], col + Xj[n]);  // TODO: Access shared memory with correct index
-      // outFlow = BUF_GET(Mf_ds, r, c, n - 1, row, col);  // TODO: Access shared memory with correct index
+      // Mf_ds = BUF_GET(Mf_ds, r, c, inflowsIndices[n - 1], row + Xi[n], col + Xj[n]);  // TODO: Access shared memory with correct index
 
       h_next += inFlow - outFlow;
       t_next += (inFlow * neigh_t - outFlow * initial_t);
@@ -400,9 +404,10 @@ int main(int argc, char **argv)
   // This formula is derived by solving the following equation for for tile_size:
   // max_shared_memory = (mask_size + tile_size - 1)^2 * sizeof(datatype)
   int tile_size = 4;  // else, an arbitrary or estimated amount that does not surpass the GPU's capacity is chosen
+  int mask_size = 3;
   int block_width = tile_size + mask_size - 1;
-  dim3 block_size(block_width, block_width, 1);
-  dim3 grid_size(ceil(n / tile_size), ceil(n / tile_size), 1);
+  dim3 tiled_block_size(block_width, block_width, 1);
+  dim3 tiled_grid_size(ceil(n / tile_size), ceil(n / tile_size), 1);
   // Apply the emitLava kernel to the whole domain and update the Sh and ST state variables
   // For &(*sciara->simulation->vent)[0], assume the STL-vector specification to guarantee contiguous storage of elements (http://www.open-std.org/jtc1/sc22/wg21/docs/lwg-defects.html#69)
   emitLavaKernel<<<non_tiled_grid_size, non_tiled_block_size>>>(
@@ -426,33 +431,43 @@ int main(int argc, char **argv)
 
   //  Apply the computeOutflows kernel to the whole domain
   // TODO: Adapt kernel launch to tiled grid
-  computeOutflowsKernel<<<grid_size, block_size>>>(
-      sciara->domain->rows,
-      sciara->domain->cols,
-      sciara->X->Xi,
-      sciara->X->Xj,
-      sciara->substates->Sz,
-      sciara->substates->Sh,
-      sciara->substates->ST,
-      sciara->substates->Mf,
-      sciara->parameters->Pc,
-      sciara->parameters->a,
-      sciara->parameters->b,
-      sciara->parameters->c,
-      sciara->parameters->d);
+  tile_size = 4;  // else, an arbitrary or estimated amount that does not surpass the GPU's capacity is chosen
+  mask_size = 3;
+  block_width = tile_size + mask_size - 1;
+  tiled_block_size(block_width, block_width, 1);
+  tiled_grid_size(ceil(n / tile_size), ceil(n / tile_size), 1);
+  computeOutflowsKernel<<<tiled_grid_size, tiled_block_size>>>(
+    sciara->domain->rows,
+    sciara->domain->cols,
+    sciara->X->Xi,
+    sciara->X->Xj,
+    sciara->substates->Sz,
+    sciara->substates->Sh,
+    sciara->substates->ST,
+    sciara->substates->Mf,
+    sciara->parameters->Pc,
+    sciara->parameters->a,
+    sciara->parameters->b,
+    sciara->parameters->c,
+    sciara->parameters->d,
+    tile_size,
+    mask_size);
   gpuErrchk(cudaPeekAtLastError());
   gpuErrchk(cudaDeviceSynchronize());
 
   // Apply the massBalance mass balance kernel to the whole domain and update the Sh and ST state variables
-  massBalanceKernel<<<grid_size, block_size>>>(sciara->domain->rows,
-                                               sciara->domain->cols,
-                                               sciara->X->Xi,
-                                               sciara->X->Xj,
-                                               sciara->substates->Sh,
-                                               sciara->substates->Sh_next,
-                                               sciara->substates->ST,
-                                               sciara->substates->ST_next,
-                                               sciara->substates->Mf);
+  massBalanceKernel<<<tiled_grid_size, tiled_block_size>>>(
+    sciara->domain->rows,
+    sciara->domain->cols,
+    sciara->X->Xi,
+    sciara->X->Xj,
+    sciara->substates->Sh,
+    sciara->substates->Sh_next,
+    sciara->substates->ST,
+    sciara->substates->ST_next,
+    sciara->substates->Mf,
+    tile_size,
+    mask_size);
   gpuErrchk(cudaPeekAtLastError());
   gpuErrchk(cudaDeviceSynchronize());
   memcpy(sciara->substates->Sh, sciara->substates->Sh_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
@@ -489,15 +504,17 @@ int main(int argc, char **argv)
   #pragma omp parallel for
     for (int i = i_start; i < i_end; i++)
       for (int j = j_start; j < j_end; j++)
-        boundaryConditions(i, j,
-                           sciara->domain->rows,
-                           sciara->domain->cols,
-                           sciara->substates->Mf,
-                           sciara->substates->Mb,
-                           sciara->substates->Sh,
-                           sciara->substates->Sh_next,
-                           sciara->substates->ST,
-                           sciara->substates->ST_next);
+        boundaryConditions(
+          i,
+          j,
+          sciara->domain->rows,
+          sciara->domain->cols,
+          sciara->substates->Mf,
+          sciara->substates->Mb,
+          sciara->substates->Sh,
+          sciara->substates->Sh_next,
+          sciara->substates->ST,
+          sciara->substates->ST_next);
     memcpy(sciara->substates->Sh, sciara->substates->Sh_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
     memcpy(sciara->substates->ST, sciara->substates->ST_next, sizeof(double) * sciara->domain->rows * sciara->domain->cols);
 
